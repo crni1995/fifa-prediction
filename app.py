@@ -6,12 +6,14 @@ from xgboost import XGBClassifier, XGBRegressor
 from collections import defaultdict
 import requests
 from datetime import datetime
+import json
 
 # API Configuration
 API_KEY = "83026149"
 BASE_URL = "https://api.leaguerepublic.com/json/"
 
 # Fetch Current Season
+@st.cache_data
 def fetch_current_season(api_key):
     url = f"{BASE_URL}getSeasonsForLeague/{api_key}.json"
     response = requests.get(url)
@@ -20,11 +22,39 @@ def fetch_current_season(api_key):
     return next((s for s in seasons if s.get("currentSeason")), None)
 
 # Fetch Fixtures for Season
+@st.cache_data
 def fetch_fixtures_for_season(api_key, season_id):
     url = f"{BASE_URL}getFixturesForSeason/{season_id}.json"
     response = requests.get(url)
     response.raise_for_status()
     return response.json()
+
+# Save Results to File
+def save_results_to_file(results, filename="results.json"):
+    with open(filename, "w") as f:
+        json.dump(results, f)
+
+# Load Results from File
+def load_results_from_file(filename="results.json"):
+    try:
+        with open(filename, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+# Combine Old and New Results
+def get_combined_results(api_key, season_id):
+    # Load old results
+    old_results = load_results_from_file()
+    
+    # Fetch new fixtures and process results
+    new_fixtures = fetch_fixtures_for_season(api_key, season_id)
+    new_results = extract_results(new_fixtures)
+    
+    # Combine old and new results
+    combined_results = old_results + [r for r in new_results if r not in old_results]
+    save_results_to_file(combined_results)
+    return combined_results
 
 # Extract Results from Fixtures
 def extract_results(fixtures):
@@ -164,29 +194,29 @@ def main():
     st.title("FIFA League Match Predictor")
     st.sidebar.title("Select Players for Match Prediction")
 
-    # Fetch Current Season and Fixtures
-    st.sidebar.write("Fetching current season and matches...")
+    # Fetch Current Season
+    st.sidebar.write("Fetching current season...")
     current_season = fetch_current_season(API_KEY)
     if not current_season:
         st.error("Could not fetch current season.")
         return
 
     season_id = current_season["seasonID"]
-    fixtures = fetch_fixtures_for_season(API_KEY, season_id)
-    if not fixtures:
-        st.error("No fixtures found for the current season.")
-        return
 
-    # Extract Results and Calculate Weights
-    results = extract_results(fixtures)
-    weights = calculate_match_weights(results)
+    # Get Combined Results
+    results = get_combined_results(API_KEY, season_id)
     if not results:
         st.error("No match results available.")
         return
 
-    # Prepare Data and Train Models
+    # Calculate Weights
+    weights = calculate_match_weights(results)
+
+    # Prepare Data
     data_classification = prepare_data_for_classification(results, weights)
     data_regression = prepare_data_for_regression(results, weights)
+
+    # Train Models
     st.sidebar.write("Training ML models...")
     model_class, model_reg, player_map = train_ml_models(data_classification, data_regression)
 
@@ -208,14 +238,6 @@ def main():
 
         if total_goals_prediction is not None:
             st.write(f"Predicted Total Goals: {total_goals_prediction:.2f}")
-
-        # Reasoning
-        st.write("### Reasoning Behind Predictions")
-        player1_stats = calculate_player_statistics(results, player1)
-        player2_stats = calculate_player_statistics(results, player2)
-
-        st.write(f"**{player1}'s Stats:** {player1_stats}")
-        st.write(f"**{player2}'s Stats:** {player2_stats}")
 
 if __name__ == "__main__":
     main()
