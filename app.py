@@ -5,7 +5,6 @@ from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier, XGBRegressor
 from collections import defaultdict
 import requests
-import matplotlib.pyplot as plt
 from datetime import datetime
 
 # API Configuration
@@ -163,7 +162,7 @@ def predict_total_goals(model, player_map, player1, player2):
 # Streamlit App
 def main():
     st.title("FIFA League Match Predictor")
-    st.sidebar.title("Select a Day for Matches")
+    st.sidebar.title("Select Players for Match Prediction")
 
     # Fetch Current Season and Fixtures
     st.sidebar.write("Fetching current season and matches...")
@@ -191,48 +190,32 @@ def main():
     st.sidebar.write("Training ML models...")
     model_class, model_reg, player_map = train_ml_models(data_classification, data_regression)
 
-    # Allow User to Pick a Date
-    selected_date = st.sidebar.date_input("Select a Date", value=datetime.today().date())
-    selected_date_str = selected_date.strftime("%Y-%m-%d")
+    # Player Selection
+    players = list(player_map.keys())
+    player1 = st.sidebar.selectbox("Select Player 1", players)
+    player2 = st.sidebar.selectbox("Select Player 2", players)
 
-    # Filter Matches for Selected Date
-    matches_for_day = [
-        match for match in results if match["date"].startswith(selected_date_str)
-    ]
+    if st.sidebar.button("Predict Outcome"):
+        # Predictions
+        outcome_prediction = predict_match_outcome(model_class, player_map, player1, player2)
+        total_goals_prediction = predict_total_goals(model_reg, player_map, player1, player2)
 
-    if not matches_for_day:
-        st.write(f"No matches found for {selected_date}.")
-        return
+        st.write("### Predictions")
+        if outcome_prediction is not None:
+            st.write(f"Win Probability for {player1}: {outcome_prediction[2]*100:.2f}%")
+            st.write(f"Draw Probability: {outcome_prediction[1]*100:.2f}%")
+            st.write(f"Win Probability for {player2}: {outcome_prediction[0]*100:.2f}%")
 
-    st.write(f"**Matches for {selected_date}:**")
-    match_options = [
-        f"{match['homePlayer']} vs {match['awayPlayer']} (Time: {match['date'][11:]})"
-        for match in matches_for_day
-    ]
-    selected_match = st.selectbox("Select a Match", match_options)
+        if total_goals_prediction is not None:
+            st.write(f"Predicted Total Goals: {total_goals_prediction:.2f}")
 
-    # Find Selected Match
-    match_index = match_options.index(selected_match)
-    match = matches_for_day[match_index]
+        # Reasoning
+        st.write("### Reasoning Behind Predictions")
+        player1_stats = calculate_player_statistics(results, player1)
+        player2_stats = calculate_player_statistics(results, player2)
 
-    # Display Predictions for Selected Match
-    st.write("### Match Details")
-    st.write(f"**Home Player:** {match['homePlayer']}")
-    st.write(f"**Away Player:** {match['awayPlayer']}")
-    st.write(f"**Match Time:** {match['date']}")
-
-    # Perform Predictions
-    outcome_prediction = predict_match_outcome(model_class, player_map, match["homePlayer"], match["awayPlayer"])
-    total_goals_prediction = predict_total_goals(model_reg, player_map, match["homePlayer"], match["awayPlayer"])
-
-    st.write("### Predictions")
-    if outcome_prediction is not None:
-        st.write(f"Win Probability for {match['homePlayer']}: {outcome_prediction[2]*100:.2f}%")
-        st.write(f"Draw Probability: {outcome_prediction[1]*100:.2f}%")
-        st.write(f"Win Probability for {match['awayPlayer']}: {outcome_prediction[0]*100:.2f}%")
-
-    if total_goals_prediction is not None:
-        st.write(f"Predicted Total Goals: {total_goals_prediction:.2f}")
+        st.write(f"**{player1}'s Stats:** {player1_stats}")
+        st.write(f"**{player2}'s Stats:** {player2_stats}")
 
 if __name__ == "__main__":
     main()
