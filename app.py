@@ -160,58 +160,10 @@ def predict_total_goals(model, player_map, player1, player2):
     prediction = model.predict([[p1_id, p2_id]])[0]
     return prediction
 
-def get_player_stats(player, results):
-    """Compute player-specific stats for reasoning."""
-    matches = [match for match in results if player in {match["homePlayer"], match["awayPlayer"]}]
-    total_matches = len(matches)
-    wins = sum(
-        1 for match in matches
-        if (match["homePlayer"] == player and match["homeScore"] > match["awayScore"]) or
-           (match["awayPlayer"] == player and match["awayScore"] > match["homeScore"])
-    )
-    draws = sum(
-        1 for match in matches
-        if match["homeScore"] == match["awayScore"]
-    )
-    losses = total_matches - wins - draws
-    recent_matches = sorted(matches, key=lambda x: x["date"], reverse=True)[:5]
-    return {
-        "total_matches": total_matches,
-        "wins": wins,
-        "draws": draws,
-        "losses": losses,
-        "recent_matches": recent_matches
-    }
-
-def get_head_to_head(player1, player2, results):
-    """Compute head-to-head stats."""
-    matches = [
-        match for match in results if {player1, player2} == {match["homePlayer"], match["awayPlayer"]}
-    ]
-    total_matches = len(matches)
-    player1_wins = sum(
-        1 for match in matches
-        if (match["homePlayer"] == player1 and match["homeScore"] > match["awayScore"]) or
-           (match["awayPlayer"] == player1 and match["awayScore"] > match["homeScore"])
-    )
-    player2_wins = sum(
-        1 for match in matches
-        if (match["homePlayer"] == player2 and match["homeScore"] > match["awayScore"]) or
-           (match["awayPlayer"] == player2 and match["awayScore"] > match["homeScore"])
-    )
-    draws = total_matches - player1_wins - player2_wins
-    return {
-        "total_matches": total_matches,
-        "player1_wins": player1_wins,
-        "player2_wins": player2_wins,
-        "draws": draws
-    }
-
-
 # Streamlit App
 def main():
     st.title("FIFA League Match Predictor")
-    st.sidebar.title("Player Match Predictor")
+    st.sidebar.title("Select a Day for Matches")
 
     # Fetch Current Season and Fixtures
     st.sidebar.write("Fetching current season and matches...")
@@ -239,56 +191,48 @@ def main():
     st.sidebar.write("Training ML models...")
     model_class, model_reg, player_map = train_ml_models(data_classification, data_regression)
 
-    # Player Selection
-    players = list(player_map.keys())
-    player1 = st.sidebar.selectbox("Select Player 1", players)
-    player2 = st.sidebar.selectbox("Select Player 2", players)
+    # Allow User to Pick a Date
+    selected_date = st.sidebar.date_input("Select a Date", value=datetime.today().date())
+    selected_date_str = selected_date.strftime("%Y-%m-%d")
 
-    if st.sidebar.button("Predict Outcome"):
-        outcome_prediction = predict_match_outcome(model_class, player_map, player1, player2)
-        total_goals_prediction = predict_total_goals(model_reg, player_map, player1, player2)
+    # Filter Matches for Selected Date
+    matches_for_day = [
+        match for match in results if match["date"].startswith(selected_date_str)
+    ]
 
-        if outcome_prediction is not None:
-            st.write(f"Prediction for {player1} vs {player2}:")
-            st.write(f"Win Probability for {player1}: {outcome_prediction[2]*100:.2f}%")
-            st.write(f"Draw Probability: {outcome_prediction[1]*100:.2f}%")
-            st.write(f"Win Probability for {player2}: {outcome_prediction[0]*100:.2f}%")
+    if not matches_for_day:
+        st.write(f"No matches found for {selected_date}.")
+        return
 
-        if total_goals_prediction is not None:
-            st.write(f"Predicted Total Goals: {total_goals_prediction:.2f}")
-                # Display Reasoning
-        st.write("**Reasoning Behind Predictions:**")
+    st.write(f"**Matches for {selected_date}:**")
+    match_options = [
+        f"{match['homePlayer']} vs {match['awayPlayer']} (Time: {match['date'][11:]})"
+        for match in matches_for_day
+    ]
+    selected_match = st.selectbox("Select a Match", match_options)
 
-        # Player 1 Stats
-        player1_stats = get_player_stats(player1, results)
-        st.write(f"**{player1} Stats:**")
-        st.write(f"- Total Matches: {player1_stats['total_matches']}")
-        st.write(f"- Wins: {player1_stats['wins']}")
-        st.write(f"- Draws: {player1_stats['draws']}")
-        st.write(f"- Losses: {player1_stats['losses']}")
-        st.write("Recent Matches:")
-        for match in player1_stats["recent_matches"]:
-            st.write(f"  - {match['homePlayer']} ({match['homeScore']}) vs {match['awayPlayer']} ({match['awayScore']}) on {match['date']}")
+    # Find Selected Match
+    match_index = match_options.index(selected_match)
+    match = matches_for_day[match_index]
 
-        # Player 2 Stats
-        player2_stats = get_player_stats(player2, results)
-        st.write(f"**{player2} Stats:**")
-        st.write(f"- Total Matches: {player2_stats['total_matches']}")
-        st.write(f"- Wins: {player2_stats['wins']}")
-        st.write(f"- Draws: {player2_stats['draws']}")
-        st.write(f"- Losses: {player2_stats['losses']}")
-        st.write("Recent Matches:")
-        for match in player2_stats["recent_matches"]:
-            st.write(f"  - {match['homePlayer']} ({match['homeScore']}) vs {match['awayPlayer']} ({match['awayScore']}) on {match['date']}")
+    # Display Predictions for Selected Match
+    st.write("### Match Details")
+    st.write(f"**Home Player:** {match['homePlayer']}")
+    st.write(f"**Away Player:** {match['awayPlayer']}")
+    st.write(f"**Match Time:** {match['date']}")
 
-        # Head-to-Head Stats
-        head_to_head_stats = get_head_to_head(player1, player2, results)
-        st.write(f"**Head-to-Head Between {player1} and {player2}:**")
-        st.write(f"- Total Matches: {head_to_head_stats['total_matches']}")
-        st.write(f"- {player1} Wins: {head_to_head_stats['player1_wins']}")
-        st.write(f"- {player2} Wins: {head_to_head_stats['player2_wins']}")
-        st.write(f"- Draws: {head_to_head_stats['draws']}")
-    
+    # Perform Predictions
+    outcome_prediction = predict_match_outcome(model_class, player_map, match["homePlayer"], match["awayPlayer"])
+    total_goals_prediction = predict_total_goals(model_reg, player_map, match["homePlayer"], match["awayPlayer"])
+
+    st.write("### Predictions")
+    if outcome_prediction is not None:
+        st.write(f"Win Probability for {match['homePlayer']}: {outcome_prediction[2]*100:.2f}%")
+        st.write(f"Draw Probability: {outcome_prediction[1]*100:.2f}%")
+        st.write(f"Win Probability for {match['awayPlayer']}: {outcome_prediction[0]*100:.2f}%")
+
+    if total_goals_prediction is not None:
+        st.write(f"Predicted Total Goals: {total_goals_prediction:.2f}")
 
 if __name__ == "__main__":
     main()
